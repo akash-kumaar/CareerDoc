@@ -1,0 +1,16 @@
+.env
+
+.env
+.env.*
+!.env.example
+backend/.env
+frontend/.env.local
+frontend/.env.production.local
+node_modules/
+**/node_modules/
+dist/
+**/dist/
+desktop/
+*.pem
+*.key
+*.log

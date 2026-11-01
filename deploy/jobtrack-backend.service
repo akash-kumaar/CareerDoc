@@ -1,0 +1,24 @@
+# /etc/systemd/system/jobtrack-backend.service
+#
+# Keeps the Node/Express backend running after SSH logout, restarts it on
+# crash, and starts it automatically on reboot.
+
+[Unit]
+Description=JobTrack Node/Express backend
+After=network.target postgresql.service
+Wants=postgresql.service
+
+[Service]
+Type=simple
+User=jobtrack
+WorkingDirectory=/opt/jobtrack/backend
+EnvironmentFile=/opt/jobtrack/backend/.env
+ExecStart=/usr/bin/node /opt/jobtrack/backend/src/server.js
+Restart=on-failure
+RestartSec=3
+
+# Backend only needs to listen locally; enforced in server.js/.env, not here.
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target
