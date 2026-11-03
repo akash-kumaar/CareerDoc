@@ -48,7 +48,7 @@ jobs:
             --instance-ids "${{ vars.EC2_INSTANCE_ID }}" \
             --document-name "AWS-RunShellScript" \
             --comment "CareerDoc deployment from GitHub Actions" \
-            --parameters '{"commands":["cd /home/ubuntu/careerdoc && git fetch origin main && git reset --hard origin/main && sudo docker compose -f compose.yaml -f compose.production.yaml build && sudo docker compose -f compose.yaml -f compose.production.yaml up -d"]}' \
+            --parameters '{"commands":["sudo -u ubuntu git -C /home/ubuntu/careerdoc fetch origin main && sudo -u ubuntu git -C /home/ubuntu/careerdoc reset --hard origin/main && cd /home/ubuntu/careerdoc && sudo docker compose -f compose.yaml -f compose.production.yaml build && sudo docker compose -f compose.yaml -f compose.production.yaml up -d"]}' \
             --query "Command.CommandId" \
             --output text)
 
