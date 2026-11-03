@@ -1,67 +1,66 @@
 import { useEffect, useState, useCallback } from 'react';
-import * as api from './services/api';
+import * as api from './services/api.js';
+import { DEMO_RECORDS } from './data/demoRecords.js';
 
-const TYPES = ['job', 'internship', 'freelance'];
-const STATUSES = ['saved', 'applied', 'interview', 'offer', 'rejected', 'closed'];
-const WORK_ARRANGEMENTS = ['remote', 'hybrid', 'on-site'];
+import Sidebar from './components/Sidebar.jsx';
+import OverviewPage from './components/OverviewPage.jsx';
+import OpportunitiesPage from './components/OpportunitiesPage.jsx';
+import AddOpportunityModal from './components/AddOpportunityModal.jsx';
+import DetailModal from './components/DetailModal.jsx';
+import Toast from './components/Toast.jsx';
 
-const EMPTY_FORM = {
-  company_name: '',
-  role_title: '',
-  type: 'job',
-  platform: '',
-  url: '',
-  location: '',
-  work_arrangement: '',
-  salary: '',
-  currency: '',
-  status: 'saved',
-  applied_date: '',
-  deadline: '',
-  notes: '',
-};
+// ── App ───────────────────────────────────────────────────
+export default function App() {
+  // ── Navigation ───────────────────────────────────────
+  const [activePage, setActivePage] = useState('overview');
 
-function formatDate(value) {
-  if (!value) return '—';
-  return new Date(value).toLocaleDateString();
-}
-
-function App() {
+  // ── Data ─────────────────────────────────────────────
   const [opportunities, setOpportunities] = useState([]);
+  const [allOpportunities, setAllOpportunities] = useState([]);
   const [counts, setCounts] = useState({ total: 0, saved: 0, applied: 0, interview: 0, offer: 0 });
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [successMessage, setSuccessMessage] = useState('');
 
+  // ── Filters ──────────────────────────────────────────
   const [filters, setFilters] = useState({ search: '', type: '', status: '', work_arrangement: '' });
 
+  // ── Modal / form state ───────────────────────────────
   const [showForm, setShowForm] = useState(false);
-  const [formData, setFormData] = useState(EMPTY_FORM);
-  const [editingId, setEditingId] = useState(null);
+  const [editingOpportunity, setEditingOpportunity] = useState(null);
   const [formError, setFormError] = useState('');
   const [saving, setSaving] = useState(false);
 
   const [detailOpportunity, setDetailOpportunity] = useState(null);
   const [deletingId, setDeletingId] = useState(null);
-  const [deleteError, setDeleteError] = useState('');
 
+  // ── Demo loading ─────────────────────────────────────
+  const [loadingDemo, setLoadingDemo] = useState(false);
+
+  // ── Toast ─────────────────────────────────────────────
+  const [toast, setToast] = useState({ message: '', type: 'success' });
+
+  function showToast(message, type = 'success') {
+    setToast({ message, type });
+  }
+
+  // ── Fetch (filtered) ─────────────────────────────────
   const fetchOpportunities = useCallback(async () => {
     setLoading(true);
-    setError('');
     try {
       const data = await api.listOpportunities(filters);
       setOpportunities(data || []);
     } catch (err) {
-      setError(err.message || 'Failed to load opportunities. Is the backend running?');
+      showToast(err.message || 'Failed to load opportunities.', 'error');
       setOpportunities([]);
     } finally {
       setLoading(false);
     }
   }, [filters]);
 
-  const fetchCounts = useCallback(async () => {
+  // ── Fetch all (for counts + overview) ────────────────
+  const fetchAll = useCallback(async () => {
     try {
       const all = await api.listOpportunities({});
+      setAllOpportunities(all || []);
       const next = { total: 0, saved: 0, applied: 0, interview: 0, offer: 0 };
       (all || []).forEach((o) => {
         next.total += 1;
@@ -69,25 +68,33 @@ function App() {
       });
       setCounts(next);
     } catch (err) {
-      // Non-fatal: summary counts are a convenience, don't block the page on this.
-      console.error('Failed to load summary counts', err);
+      console.error('Failed to load all opportunities for counts:', err);
     }
   }, []);
 
-  useEffect(() => {
-    fetchOpportunities();
-  }, [fetchOpportunities]);
+  useEffect(() => { fetchOpportunities(); }, [fetchOpportunities]);
+  useEffect(() => { fetchAll(); }, [fetchAll]);
 
-  useEffect(() => {
-    fetchCounts();
-  }, [fetchCounts]);
+  async function refresh() {
+    await Promise.all([fetchOpportunities(), fetchAll()]);
+  }
 
+  // ── Keyboard shortcut: N = add ───────────────────────
   useEffect(() => {
-    if (!successMessage) return;
-    const timer = setTimeout(() => setSuccessMessage(''), 3000);
-    return () => clearTimeout(timer);
-  }, [successMessage]);
+    function handleKey(e) {
+      // Don't trigger when typing in inputs/modals
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
+      if (showForm || detailOpportunity) return;
+      if (e.key === 'n' || e.key === 'N') {
+        e.preventDefault();
+        openAddForm();
+      }
+    }
+    document.addEventListener('keydown', handleKey);
+    return () => document.removeEventListener('keydown', handleKey);
+  }, [showForm, detailOpportunity]);
 
+  // ── Handlers ─────────────────────────────────────────
   function handleFilterChange(field, value) {
     setFilters((prev) => ({ ...prev, [field]: value }));
   }
@@ -97,29 +104,13 @@ function App() {
   }
 
   function openAddForm() {
-    setFormData(EMPTY_FORM);
-    setEditingId(null);
+    setEditingOpportunity(null);
     setFormError('');
     setShowForm(true);
   }
 
   function openEditForm(opportunity) {
-    setFormData({
-      company_name: opportunity.company_name || '',
-      role_title: opportunity.role_title || '',
-      type: opportunity.type || 'job',
-      platform: opportunity.platform || '',
-      url: opportunity.url || '',
-      location: opportunity.location || '',
-      work_arrangement: opportunity.work_arrangement || '',
-      salary: opportunity.salary != null ? String(opportunity.salary) : '',
-      currency: opportunity.currency || '',
-      status: opportunity.status || 'saved',
-      applied_date: opportunity.applied_date ? opportunity.applied_date.slice(0, 10) : '',
-      deadline: opportunity.deadline ? opportunity.deadline.slice(0, 10) : '',
-      notes: opportunity.notes || '',
-    });
-    setEditingId(opportunity.id);
+    setEditingOpportunity(opportunity);
     setFormError('');
     setShowForm(true);
   }
@@ -129,12 +120,7 @@ function App() {
     setFormError('');
   }
 
-  function handleFormChange(field, value) {
-    setFormData((prev) => ({ ...prev, [field]: value }));
-  }
-
-  async function handleFormSubmit(e) {
-    e.preventDefault();
+  async function handleFormSubmit(formData) {
     setFormError('');
     setSaving(true);
 
@@ -147,51 +133,44 @@ function App() {
     };
 
     try {
-      if (editingId) {
-        await api.updateOpportunity(editingId, payload);
-        setSuccessMessage('Opportunity updated.');
+      if (editingOpportunity) {
+        await api.updateOpportunity(editingOpportunity.id, payload);
+        showToast('Opportunity updated.');
       } else {
         await api.createOpportunity(payload);
-        setSuccessMessage('Opportunity added.');
+        showToast('Opportunity added.');
       }
       setShowForm(false);
-      await fetchOpportunities();
-      await fetchCounts();
+      await refresh();
     } catch (err) {
-      setFormError(err.message || 'Failed to save opportunity.');
+      setFormError(err.message || 'Failed to save. Please try again.');
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleDelete(id) {
+    setDeletingId(id);
+    try {
+      await api.deleteOpportunity(id);
+      showToast('Opportunity deleted.');
+      if (detailOpportunity && detailOpportunity.id === id) {
+        setDetailOpportunity(null);
+      }
+      await refresh();
+    } catch (err) {
+      showToast(err.message || 'Failed to delete.', 'error');
+    } finally {
+      setDeletingId(null);
     }
   }
 
   async function handleStatusChange(opportunity, newStatus) {
     try {
       await api.updateOpportunityStatus(opportunity.id, newStatus);
-      await fetchOpportunities();
-      await fetchCounts();
+      await refresh();
     } catch (err) {
-      setError(err.message || 'Failed to update status.');
-    }
-  }
-
-  async function handleDelete(id) {
-    const confirmed = window.confirm('Delete this opportunity?');
-    if (!confirmed) return;
-
-    setDeletingId(id);
-    setDeleteError('');
-    try {
-      await api.deleteOpportunity(id);
-      setSuccessMessage('Opportunity deleted.');
-      if (detailOpportunity && detailOpportunity.id === id) {
-        setDetailOpportunity(null);
-      }
-      await fetchOpportunities();
-      await fetchCounts();
-    } catch (err) {
-      setDeleteError(err.message || 'Failed to delete opportunity.');
-    } finally {
-      setDeletingId(null);
+      showToast(err.message || 'Failed to update status.', 'error');
     }
   }
 
@@ -199,349 +178,94 @@ function App() {
     try {
       const fresh = await api.getOpportunity(opportunity.id);
       setDetailOpportunity(fresh);
-    } catch (err) {
+    } catch {
       setDetailOpportunity(opportunity);
     }
   }
 
+  async function handleLoadDemo() {
+    setLoadingDemo(true);
+    let succeeded = 0;
+    let failed = 0;
+    for (const record of DEMO_RECORDS) {
+      try {
+        await api.createOpportunity(record);
+        succeeded++;
+      } catch {
+        failed++;
+      }
+    }
+    await refresh();
+    setLoadingDemo(false);
+    if (succeeded > 0) {
+      showToast(
+        `${succeeded} demo record${succeeded > 1 ? 's' : ''} loaded.${failed > 0 ? ` (${failed} failed)` : ''}`,
+        'success'
+      );
+    } else {
+      showToast('Failed to load demo records.', 'error');
+    }
+  }
+
+  // ── Shared props ──────────────────────────────────────
+  const commonProps = {
+    onAdd:       openAddForm,
+    onLoadDemo:  handleLoadDemo,
+    loadingDemo,
+  };
+
   return (
-    <div className="app">
-      <header className="header">
-        <h1>JobTrack</h1>
-        <p className="subtitle">Track jobs, internships and freelance opportunities.</p>
-      </header>
+    <div className="app-layout">
+      <Sidebar activePage={activePage} onNavigate={setActivePage} />
 
-      <section className="summary">
-        <div className="summary-card">
-          <span className="summary-label">Total</span>
-          <span className="summary-value">{counts.total}</span>
-        </div>
-        <div className="summary-card">
-          <span className="summary-label">Saved</span>
-          <span className="summary-value">{counts.saved}</span>
-        </div>
-        <div className="summary-card">
-          <span className="summary-label">Applied</span>
-          <span className="summary-value">{counts.applied}</span>
-        </div>
-        <div className="summary-card">
-          <span className="summary-label">Interview</span>
-          <span className="summary-value">{counts.interview}</span>
-        </div>
-        <div className="summary-card">
-          <span className="summary-label">Offer</span>
-          <span className="summary-value">{counts.offer}</span>
-        </div>
-      </section>
-
-      <div className="toolbar">
-        <button className="btn btn-primary" onClick={openAddForm}>
-          Add Opportunity
-        </button>
-      </div>
-
-      {successMessage && <div className="banner banner-success">{successMessage}</div>}
-      {error && <div className="banner banner-error">{error}</div>}
-      {deleteError && <div className="banner banner-error">{deleteError}</div>}
-
-      <div className="filters">
-        <input
-          type="text"
-          placeholder="Search company, role or platform..."
-          value={filters.search}
-          onChange={(e) => handleFilterChange('search', e.target.value)}
-        />
-        <select value={filters.type} onChange={(e) => handleFilterChange('type', e.target.value)}>
-          <option value="">All types</option>
-          {TYPES.map((t) => (
-            <option key={t} value={t}>
-              {t}
-            </option>
-          ))}
-        </select>
-        <select value={filters.status} onChange={(e) => handleFilterChange('status', e.target.value)}>
-          <option value="">All statuses</option>
-          {STATUSES.map((s) => (
-            <option key={s} value={s}>
-              {s}
-            </option>
-          ))}
-        </select>
-        <select
-          value={filters.work_arrangement}
-          onChange={(e) => handleFilterChange('work_arrangement', e.target.value)}
-        >
-          <option value="">All arrangements</option>
-          {WORK_ARRANGEMENTS.map((w) => (
-            <option key={w} value={w}>
-              {w}
-            </option>
-          ))}
-        </select>
-        <button className="btn btn-secondary" onClick={handleClearFilters}>
-          Clear filters
-        </button>
-      </div>
-
-      <section className="list-section">
-        {loading ? (
-          <p className="empty-state">Loading opportunities...</p>
-        ) : opportunities.length === 0 ? (
-          <p className="empty-state">No opportunities found. Try adding one or adjusting your filters.</p>
+      <div className="main-content">
+        {activePage === 'overview' ? (
+          <OverviewPage
+            {...commonProps}
+            counts={counts}
+            allOpportunities={allOpportunities}
+            loading={loading}
+          />
         ) : (
-          <table className="opportunity-table">
-            <thead>
-              <tr>
-                <th>Company</th>
-                <th>Role</th>
-                <th>Type</th>
-                <th>Platform</th>
-                <th>Status</th>
-                <th>Location</th>
-                <th>Arrangement</th>
-                <th>Deadline</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {opportunities.map((o) => (
-                <tr key={o.id}>
-                  <td className="clickable" onClick={() => openDetail(o)}>
-                    {o.company_name}
-                  </td>
-                  <td className="clickable" onClick={() => openDetail(o)}>
-                    {o.role_title}
-                  </td>
-                  <td>{o.type}</td>
-                  <td>{o.platform || '—'}</td>
-                  <td>
-                    <select value={o.status} onChange={(e) => handleStatusChange(o, e.target.value)}>
-                      {STATUSES.map((s) => (
-                        <option key={s} value={s}>
-                          {s}
-                        </option>
-                      ))}
-                    </select>
-                  </td>
-                  <td>{o.location || '—'}</td>
-                  <td>{o.work_arrangement || '—'}</td>
-                  <td>{formatDate(o.deadline)}</td>
-                  <td className="row-actions">
-                    <button className="btn btn-small" onClick={() => openEditForm(o)}>
-                      Edit
-                    </button>
-                    <button
-                      className="btn btn-small btn-danger"
-                      onClick={() => handleDelete(o.id)}
-                      disabled={deletingId === o.id}
-                    >
-                      {deletingId === o.id ? 'Deleting...' : 'Delete'}
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <OpportunitiesPage
+            {...commonProps}
+            opportunities={opportunities}
+            loading={loading}
+            filters={filters}
+            onFilterChange={handleFilterChange}
+            onClearFilters={handleClearFilters}
+            onEdit={openEditForm}
+            onDelete={handleDelete}
+            onDetail={openDetail}
+            onStatusChange={handleStatusChange}
+            deletingId={deletingId}
+          />
         )}
-      </section>
+      </div>
 
-      {showForm && (
-        <div className="modal-overlay" onClick={closeForm}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <h2>{editingId ? 'Edit Opportunity' : 'Add Opportunity'}</h2>
-            {formError && <div className="banner banner-error">{formError}</div>}
-            <form onSubmit={handleFormSubmit} className="opportunity-form">
-              <label>
-                Company name *
-                <input
-                  type="text"
-                  required
-                  value={formData.company_name}
-                  onChange={(e) => handleFormChange('company_name', e.target.value)}
-                />
-              </label>
-              <label>
-                Role title *
-                <input
-                  type="text"
-                  required
-                  value={formData.role_title}
-                  onChange={(e) => handleFormChange('role_title', e.target.value)}
-                />
-              </label>
-              <label>
-                Type *
-                <select
-                  required
-                  value={formData.type}
-                  onChange={(e) => handleFormChange('type', e.target.value)}
-                >
-                  {TYPES.map((t) => (
-                    <option key={t} value={t}>
-                      {t}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                Platform
-                <input
-                  type="text"
-                  value={formData.platform}
-                  onChange={(e) => handleFormChange('platform', e.target.value)}
-                />
-              </label>
-              <label>
-                URL
-                <input
-                  type="url"
-                  value={formData.url}
-                  onChange={(e) => handleFormChange('url', e.target.value)}
-                />
-              </label>
-              <label>
-                Location
-                <input
-                  type="text"
-                  value={formData.location}
-                  onChange={(e) => handleFormChange('location', e.target.value)}
-                />
-              </label>
-              <label>
-                Work arrangement
-                <select
-                  value={formData.work_arrangement}
-                  onChange={(e) => handleFormChange('work_arrangement', e.target.value)}
-                >
-                  <option value="">—</option>
-                  {WORK_ARRANGEMENTS.map((w) => (
-                    <option key={w} value={w}>
-                      {w}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                Salary
-                <input
-                  type="number"
-                  value={formData.salary}
-                  onChange={(e) => handleFormChange('salary', e.target.value)}
-                />
-              </label>
-              <label>
-                Currency
-                <input
-                  type="text"
-                  value={formData.currency}
-                  onChange={(e) => handleFormChange('currency', e.target.value)}
-                  placeholder="USD"
-                />
-              </label>
-              <label>
-                Status *
-                <select
-                  required
-                  value={formData.status}
-                  onChange={(e) => handleFormChange('status', e.target.value)}
-                >
-                  {STATUSES.map((s) => (
-                    <option key={s} value={s}>
-                      {s}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                Applied date
-                <input
-                  type="date"
-                  value={formData.applied_date}
-                  onChange={(e) => handleFormChange('applied_date', e.target.value)}
-                />
-              </label>
-              <label>
-                Deadline
-                <input
-                  type="date"
-                  value={formData.deadline}
-                  onChange={(e) => handleFormChange('deadline', e.target.value)}
-                />
-              </label>
-              <label className="full-width">
-                Notes
-                <textarea
-                  rows={3}
-                  value={formData.notes}
-                  onChange={(e) => handleFormChange('notes', e.target.value)}
-                />
-              </label>
+      {/* Add / Edit modal */}
+      <AddOpportunityModal
+        isOpen={showForm}
+        editingOpportunity={editingOpportunity}
+        onClose={closeForm}
+        onSubmit={handleFormSubmit}
+        saving={saving}
+        formError={formError}
+      />
 
-              <div className="form-actions full-width">
-                <button type="button" className="btn btn-secondary" onClick={closeForm}>
-                  Cancel
-                </button>
-                <button type="submit" className="btn btn-primary" disabled={saving}>
-                  {saving ? 'Saving...' : editingId ? 'Save Changes' : 'Add Opportunity'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+      {/* Detail modal */}
+      <DetailModal
+        opportunity={detailOpportunity}
+        onClose={() => setDetailOpportunity(null)}
+        onEdit={openEditForm}
+      />
 
-      {detailOpportunity && (
-        <div className="modal-overlay" onClick={() => setDetailOpportunity(null)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <h2>{detailOpportunity.company_name}</h2>
-            <dl className="detail-list">
-              <dt>Role</dt>
-              <dd>{detailOpportunity.role_title}</dd>
-              <dt>Type</dt>
-              <dd>{detailOpportunity.type}</dd>
-              <dt>Platform</dt>
-              <dd>{detailOpportunity.platform || '—'}</dd>
-              <dt>URL</dt>
-              <dd>
-                {detailOpportunity.url ? (
-                  <a href={detailOpportunity.url} target="_blank" rel="noreferrer">
-                    {detailOpportunity.url}
-                  </a>
-                ) : (
-                  '—'
-                )}
-              </dd>
-              <dt>Location</dt>
-              <dd>{detailOpportunity.location || '—'}</dd>
-              <dt>Work arrangement</dt>
-              <dd>{detailOpportunity.work_arrangement || '—'}</dd>
-              <dt>Salary</dt>
-              <dd>
-                {detailOpportunity.salary
-                  ? `${detailOpportunity.salary} ${detailOpportunity.currency || ''}`.trim()
-                  : '—'}
-              </dd>
-              <dt>Status</dt>
-              <dd>{detailOpportunity.status}</dd>
-              <dt>Applied date</dt>
-              <dd>{formatDate(detailOpportunity.applied_date)}</dd>
-              <dt>Deadline</dt>
-              <dd>{formatDate(detailOpportunity.deadline)}</dd>
-              <dt>Notes</dt>
-              <dd>{detailOpportunity.notes || '—'}</dd>
-              <dt>Created</dt>
-              <dd>{formatDate(detailOpportunity.created_at)}</dd>
-            </dl>
-            <div className="form-actions">
-              <button className="btn btn-secondary" onClick={() => setDetailOpportunity(null)}>
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Toast */}
+      <Toast
+        message={toast.message}
+        type={toast.type}
+        onDismiss={() => setToast({ message: '', type: 'success' })}
+      />
     </div>
   );
 }
-
-export default App;
